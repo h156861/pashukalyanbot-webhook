@@ -66,6 +66,7 @@ def register_routes(app):
         try:
             request_json = request.get_json(silent=True)
             intent_name, params = get_intent_and_params(request_json)
+            print("DEBUG:", intent_name, params)
             response_text = handle_intent(intent_name, params)
         except Exception as e:
             print(f"An error occurred: {e}")
@@ -82,7 +83,7 @@ app = create_app()
 
 if __name__ == '__main__':
     app.run(debug=True)
-print("DEBUG:", intent_name, params)
+
 
 
 
