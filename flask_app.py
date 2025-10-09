@@ -1,69 +1,86 @@
-import os
-import json
 from flask import Flask, request, jsonify
+import os
 import google.generativeai as genai
 
+# -----------------------------
+# Initialization & Configuration
+# -----------------------------
 
-app = Flask(__name__)
+def create_app():
+    """Initialize and configure the Flask app."""
+    app = Flask(__name__)
+    configure_gemini()
+    register_routes(app)
+    return app
 
 
-API_KEY = os.environ.get('GEMINI_API_KEY')
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
+def configure_gemini():
+    """Configure the Gemini API."""
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        raise EnvironmentError("GEMINI_API_KEY not set in environment variables.")
+    genai.configure(api_key=api_key)
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """Handles the incoming request from Dialogflow ES."""
-    request_json = request.get_json(silent=True)
 
-    
+def get_model():
+    """Return a configured Gemini model."""
+    return genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
+
+
+# -----------------------------
+# Business Logic
+# -----------------------------
+
+def get_intent_and_params(request_json):
+    """Extract intent name and parameters from the Dialogflow request."""
     intent_name = request_json.get('queryResult', {}).get('intent', {}).get('displayName')
     params = request_json.get('queryResult', {}).get('parameters', {})
-    response_text = ""
+    return intent_name, params
 
-    try:
-        if intent_name == 'intent.diagnosis.start':
-            animal = params.get('animal', 'an animal')
-            symptoms = params.get('symptoms', 'no symptoms provided')
-            
-            system_prompt = "You are a specialist AI Veterinarian and Triage Assistant for the Pashu Kalyan initiative, focused on Indian livestock. Your response must be concise and **strictly in English**. Provide a probable condition, severity, 3-5 simple first-aid steps, and a clear next step to consult a vet. Format the response with Markdown."
-            user_query = f"Animal: {animal}. Symptoms: {symptoms}."
-            
-            full_prompt = f"{system_prompt}\n\n{user_query}"
-            response = model.generate_content(full_prompt)
-            response_text = response.text
 
-        elif intent_name == 'intent.economic.info':
-            animal_or_product = params.get('animal_or_product', 'livestock')
-            
-            system_prompt = "You are an AI Economic Advisor for the Viksit Bharat initiative. Provide real-time, grounded information for an Indian farmer. Find one relevant government scheme, current market rates, and one preventative welfare tip. Use Google Search. Respond in clear English and structure the answer with Markdown headings."
-            user_query = f"Find the latest government scheme, market rates, and a seasonal preventative welfare tip for a farmer dealing with {animal_or_product}."
-            
-            full_prompt = f"{system_prompt}\n\n{user_query}"
-            response = model.generate_content(full_prompt)
-            response_text = response.text
+def handle_intent(intent_name, params):
+    """Process the intent logic and return response text."""
+    if intent_name == 'intent.diagnosis.start':
+        animal = params.get('animal', 'an animal')
+        symptoms = params.get('symptoms', 'no symptoms provided')
+        return f"Okay, let's start diagnosis for {animal}. What symptoms are you noticing?"
+    else:
+        return "I didn’t understand that intent. Can you repeat?"
 
-        elif intent_name == 'intent.feed.plan':
-            animal = params.get('animal', 'an animal')
-            details = params.get('details', 'no details provided')
-            
-            system_prompt = "You are an expert AI Livestock Nutritionist specializing in Indian livestock and locally available, cost-effective feed. Generate a practical, balanced daily feed plan. Structure the response with Markdown headings for Morning, Afternoon, and Evening feeds, and include a section for supplements."
-            user_query = f"Generate a daily feed plan for a {animal}. Details: {details}."
 
-            full_prompt = f"{system_prompt}\n\n{user_query}"
-            response = model.generate_content(full_prompt)
-            response_text = response.text
-            
-        else:
-            response_text = f"Webhook received but the intent name '{intent_name}' was not recognized."
+def build_response(response_text):
+    """Build the Dialogflow response payload."""
+    return {"fulfillmentText": response_text}
 
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        response_text = "I apologize, a technical error occurred while processing the request."
 
-   
-    response_payload = {
-        "fulfillmentText": response_text
-    }
-    return jsonify(response_payload)
+# -----------------------------
+# Routes
+# -----------------------------
+
+def register_routes(app):
+    """Register Flask routes."""
+
+    @app.route('/webhook', methods=['POST'])
+    def webhook():
+        """Handle incoming requests from Dialogflow ES."""
+        try:
+            request_json = request.get_json(silent=True)
+            intent_name, params = get_intent_and_params(request_json)
+            response_text = handle_intent(intent_name, params)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            response_text = "I apologize, a technical error occurred while processing the request."
+
+        return jsonify(build_response(response_text))
+
+
+# -----------------------------
+# App Entry Point
+# -----------------------------
+
+app = create_app()
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
 
